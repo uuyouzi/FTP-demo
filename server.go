@@ -74,24 +74,30 @@ func (s *FTPserver) handerconn(conn net.Conn) {
 		line = strings.TrimSpace(line) //把字符串前后所有看不见的空白符号（空格、\r、\n、tab）统统擦掉
 		fmt.Println("收到命令:", line)
 
-		if strings.HasPrefix(line,"USER"){
-			username = strings.TrimSpace(strings.HasPrefix(line,"USER"))
+		if strings.HasPrefix(line,"USER "){             //它是一个固定的前缀,客户端发过来的前缀,后面有个空格区分命令和参数 ，客户端发过来会是 USER youzi这样
+
+			username = strings.TrimSpace(strings.TrimPrefix(line,"USER "))
+
 			conn.Write([]byte("331 输入密码 \r\n"))
 			continue
 		}
 
-		if strings.HasPrefix(line."PASS"){
-			password = strings.TrimSpace(strings.HasPrefix(line,"PASS"))
+		if strings.HasPrefix(line,"PASS "){            //一个固定的前缀, 客户端发过来的前缀 这几行代码为了提取和验证账号密码用，但是有个坑windows客户端会先用匿名登录（发 USER anonymous），如果失败了才会弹窗让输入用户名密码。
+
+			password := strings.TrimSpace(strings.TrimPrefix(line,"PASS "))
 
 			if username == s.cfg.username && password == s.cfg.password{
+
 				login = true
+
 				conn.Write([]byte("230 登录成功。\r\n"))
 				continue
 			}else {
 				conn.Write([]byte("530 登录失败。\r\n"))
-				return
+				return                           //没通过验证，直接切断联系所以用return
 			}
 		}
+
 		if !login {
 			conn.Write([]byte("530 请登录账号。 \r\n"))
 			continue
