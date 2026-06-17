@@ -24,7 +24,7 @@ func Addconfig(cfg *Config) {
 	cfg.username = "youzi"
 	cfg.password = "uuyouzi"
 }
-func main() {
+func main() {                                //main函数
 	cfg := &Config{}
 	Addconfig(cfg)
 
@@ -42,6 +42,8 @@ func main() {
 	}
 	s.Server()
 }
+
+
 func (s *FTPserver) Server() error {
 	for {
 		conn, err := s.listener.Accept()
@@ -51,6 +53,22 @@ func (s *FTPserver) Server() error {
 		go s.handerconn(conn)
 	}
 }
+func (s *FTPserver)startPassiveListener()(net.Listener,int,error) {              //为被动模式创建一个临时监听器
+	datalinstener,err  := net.Listener("tcp","127.0.0.1:0")
+	if err != nil {
+		return nil,0,err
+	}
+	_, portStr, _ := net.SplitHostPort(dataListener.Addr().String())
+	port, _ := strconv.Atoi(portStr)
+	return dataListener, port, nil
+}
+
+
+
+
+
+
+
 func (s *FTPserver) handerconn(conn net.Conn) {
 	defer conn.Close()
 	reader := bufio.NewReader(conn)
@@ -62,6 +80,7 @@ func (s *FTPserver) handerconn(conn net.Conn) {
 	//fmt.Println(string(data))
 	var login bool
 	var username string
+	var dataListener net.Listener
 
 
 	for {
@@ -128,10 +147,27 @@ func (s *FTPserver) handerconn(conn net.Conn) {
 			conn.Write([]byte("200 NOOP ok.\r\n"))          //NOOP是心跳检测，检查服务器是否还活着这里返回一个200的命令
 			continue
 		}
+
+
 		if line == "PASV" {
-			conn.Write([]byte("227 进入被动模式 (127,0,0,1,4,20)\r\n"))     // 稍后实现真正的数据端口，现在先回个占位响应，防止客户端卡死
-			continue
+			// 启动被动监听
+			dataListener, port, err := s.startPassiveListener()
+			if err != nil {
+				conn.Write([]byte("425 Can't open data connection.\r\n"))
+				continue
+			}
+			// 计算 p1, p2
+			p1 := port / 256
+			p2 := port % 256
+			// 格式化成 (127,0,0,1,p1,p2)         FTP协议要求是p1*256+p2=端口号
+			response := fmt.Sprintf("227 Entering Passive Mode (127,0,0,1,%d,%d)\r\n", p1, p2)
+			conn.Write([]byte(response))
+			// 把 dataListener 存起来，以便 LIST 时使用
+			// 暂时用一个 map 或直接存到 FTPserver 结构体里？
+			// 为了最简单，我们在 handlconn 里用一个局部变量，并传给后续 LIST 处理
+			// 但 LIST 处理也在同一个循环里，所以可以放在 for 外面声明一个变量
 		}
+
 
 
 		if line == "QUIT" {
@@ -140,9 +176,6 @@ func (s *FTPserver) handerconn(conn net.Conn) {
 		}else {
 			conn.Write([]byte("502 命令未实现。\r\n"))          // 其他命令返回 502 未实现
 		}
-
-
-
 
 
 
