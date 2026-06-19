@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"os"
 )
 
 type Config struct {
@@ -54,11 +55,11 @@ func (s *FTPserver) Server() error {
 	}
 }
 func (s *FTPserver)startPassiveListener()(net.Listener,int,error) {              //为被动模式创建一个临时监听器
-	datalinstener,err  := net.Listener("tcp","127.0.0.1:0")
+	datalinstener,err  := net.Listener("tcp","127.0.0.1:0")        // 监听本地任意可用端口
 	if err != nil {
 		return nil,0,err
 	}
-	_, portStr, _ := net.SplitHostPort(dataListener.Addr().String())
+	_, portStr, _ := net.SplitHostPort(dataListener.Addr().String())     // 获取实际端口号
 	port, _ := strconv.Atoi(portStr)
 	return dataListener, port, nil
 }
@@ -156,17 +157,65 @@ func (s *FTPserver) handerconn(conn net.Conn) {
 				conn.Write([]byte("425 Can't open data connection.\r\n"))
 				continue
 			}
-			// 计算 p1, p2
 			p1 := port / 256
-			p2 := port % 256
-			// 格式化成 (127,0,0,1,p1,p2)         FTP协议要求是p1*256+p2=端口号
+			p2 := port % 256              // 转成 127,0,0,1,p1,p2       FTP协议要求是p1*256+p2=端口号
+
 			response := fmt.Sprintf("227 Entering Passive Mode (127,0,0,1,%d,%d)\r\n", p1, p2)
+
 			conn.Write([]byte(response))
+
 			// 把 dataListener 存起来，以便 LIST 时使用
-			// 暂时用一个 map 或直接存到 FTPserver 结构体里？
-			// 为了最简单，我们在 handlconn 里用一个局部变量，并传给后续 LIST 处理
-			// 但 LIST 处理也在同一个循环里，所以可以放在 for 外面声明一个变量
+
 		}
+
+
+		if line == "LIST" {                       //实现 LIST 命令
+			if dataListener == nil {
+				conn.Write([]byte("425 Use PASV first.\r\n"))
+				continue
+			}
+
+
+			conn.Write([]byte("150 Opening data connection.\r\n"))
+
+			// 等客户端连上数据端口
+			dataConn, err := dataListener.Accept()
+			if err != nil {
+				conn.Write([]byte("425 Can't open data connection.\r\n"))
+				// 出错就清理掉数据监听器
+				dataListener.Close()
+				dataListener = nil
+				continue
+			}
+
+			// 读取当前目录的文件和文件夹名字
+			files, err := os.ReadDir(".")
+			if err != nil {
+				conn.Write([]byte("550 Failed to read directory.\r\n"))
+				dataConn.Close()
+				dataListener.Close()
+				dataListener = nil
+				continue
+			}
+
+			// 把文件名一个一个发过去（最简单的格式：每个名字一行）
+			for _, file := range files {
+				name := file.Name()
+				if file.IsDir() {
+					name += "/"   // 文件夹后面加个斜杠，方便辨认
+				}
+				dataConn.Write([]byte(name + "\r\n"))
+			}
+
+			// 关数据连接，关数据监听器
+			dataConn.Close()
+			dataListener.Close()
+			dataListener = nil
+			conn.Write([]byte("226 Transfer complete.\r\n"))
+			continue
+		}
+
+
 
 
 
