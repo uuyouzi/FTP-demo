@@ -107,7 +107,6 @@ func (s *FTPserver) handerconn(conn net.Conn) {
 			password := strings.TrimSpace(strings.TrimPrefix(line,"PASS "))
 
 			if username == s.cfg.username && password == s.cfg.password{
-
 				login = true
 
 				conn.Write([]byte("230 登录成功。\r\n"))
@@ -191,7 +190,7 @@ func (s *FTPserver) handerconn(conn net.Conn) {
 			// 读取当前目录的文件和文件夹名字
 			files, err := os.ReadDir(".")
 			if err != nil {
-				conn.Write([]byte("550 Failed to read directory.\r\n"))
+				conn.Write([]byte("550 Failed to read directory.\r\n"))  //550 请求操作未执行：文件不可用
 				dataConn.Close()
 				dataListener.Close()
 				dataListener = nil
@@ -214,6 +213,30 @@ func (s *FTPserver) handerconn(conn net.Conn) {
 			conn.Write([]byte("226 Transfer complete.\r\n"))
 			continue
 		}
+
+		if strings.HasPrefix(line, "CWD ") {     //实现 CWD（切换目录）
+			dir := strings.TrimSpace(strings.TrimPrefix(line, "CWD "))
+			err := os.Chdir(dir)
+			if err != nil {
+				conn.Write([]byte("550 Failed to change directory.\r\n"))   //切换目录失败 ，然后 550 FTp命令意思是   550 请求操作未执行：文件不可用
+
+			} else {
+				conn.Write([]byte("250 Directory changed.\r\n"))   //目录切换  250 意思是 250 请求文件操作成功
+			}
+			continue
+		}
+
+		if line == "CDUP" {           //返回上一级目录
+			err := os.Chdir("..")      //对应操作系统里面的 cd ..命令
+			if err != nil {
+				conn.Write([]byte("550 Failed to change directory.\r\n"))   //切换目录失败 ，然后 550 FTp命令意思是   550 请求操作未执行：文件不可用
+			} else {
+				conn.Write([]byte("250 Directory changed.\r\n"))     //250 请求文件操作成功
+			}
+			continue
+		}
+
+
 
 
 
