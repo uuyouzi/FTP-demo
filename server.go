@@ -236,6 +236,36 @@ func (s *FTPserver) handerconn(conn net.Conn) {
 			continue
 		}
 
+		if strings.HasPrefix(line,"RETR") {     //客户端发 RETR hello.txt，服务器就把 hello.txt 的内容通过数据连接发给客户端。
+			filename := strings.TrimSpace(strings.TrimPrefix(line,"RETR"))
+			if dataListener == nil{
+				conn.Write([]byte("425 Use PASV first.\r\n"))   //425 无法打开数据连接
+				continue
+			}
+
+			file,err := os.Open(filename)   //把“文件名字符串”翻译成操作系统能操作的文件对象，然后才可以从里面读数据
+			if err != nil {
+				conn.Write([]byte("550 File not found.\r\n"))    //550 请求操作未执行：文件不可用
+				continue
+			}
+			defer file.Close()
+
+			conn.Write([]byte("150 Opening data connection.\r\n"))   //150 文件状态正常，即将打开数据连接
+			dataconn,err := dataListener.Accept()
+			if err != nil{
+				conn.Write([]byte("425 Can't open data connection.\r\n"))  //425 无法打开数据连接
+				dataListener.Close()
+				dataListener = nil         //这里强制把datalistener设置为nil，是为了刷新状态，使客户端重新走一步PASV流程
+				continue
+			}
+			io.Copy(dataconn,file)  //把文件内容丢给数据连接
+
+			dataconn.Close()
+			dataListener.Close()   //关闭 ≠ 忘记。后续还需要重置状态 对应上面的if dataListener != nil
+			dataListener = nil
+			conn.Write([]byte("226 Transfer complete.\r\n"))  //   226 关闭数据连接，请求操作成功
+			continue
+		}
 
 
 
