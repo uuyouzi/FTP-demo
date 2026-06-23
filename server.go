@@ -267,6 +267,47 @@ func (s *FTPserver) handerconn(conn net.Conn) {
 			continue
 		}
 
+		// ------------------------------------------实现文件的上传
+
+		if strings.HasPrefix(line, "STOR ") {
+			filename := strings.TrimSpace(strings.TrimPrefix(line, "STOR "))
+			if dataListener == nil {
+				conn.Write([]byte("425 Use PASV first.\r\n"))    //   425 无法打开数据连接
+				continue
+			}
+
+
+			file, err := os.Create(filename) // 创建文件
+			if err != nil {
+				conn.Write([]byte("550 Failed to create file.\r\n"))   //   550 请求操作未执行：文件不可用
+				continue
+			}
+			defer file.Close()
+
+			conn.Write([]byte("150 Opening data connection.\r\n"))  //   150 文件状态正常，即将打开数据连接
+
+			dataconn2, err := dataListener.Accept()
+			if err != nil {
+				conn.Write([]byte("425 Can't open data connection.\r\n"))   //   425 无法打开数据连接
+
+				dataListener.Close()
+				dataListener = nil
+				continue
+			}
+
+			// 从数据连接读取客户端发来的数据，然后写入文件
+			io.Copy(file, dataconn2)
+
+			dataconn2.Close()
+			dataListener.Close()
+			dataListener = nil
+			conn.Write([]byte("226 Transfer complete.\r\n"))  //   226 关闭数据连接，请求操作成功
+			continue
+		}
+
+
+
+
 
 
 
