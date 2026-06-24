@@ -306,6 +306,41 @@ func (s *FTPserver) handerconn(conn net.Conn) {
 		}
 
 
+		//------------------------------创建目录
+		if strings.HasPrefix(line, "MKD ") {
+			dirname := strings.TrimSpace(strings.TrimPrefix(line, "MKD "))
+			err := os.Mkdir(dirname, 0755)                                     //给 os.Mkdir 的权限参数，表示“所有者读写执行，同组和其他人读执行”。在 Windows 上影响很小，但在 Linux 上能让文件夹正常使用。
+			if err != nil {
+				conn.Write([]byte("550 Failed to create directory.\r\n"))   //   550 请求操作未执行：文件不可用
+			} else {
+				conn.Write([]byte(fmt.Sprintf(`257 "%s" created.\r\n`, dirname)))   //   257 创建路径名
+			}
+			continue
+		}
+
+		//------------------------------删除空目录
+		if strings.HasPrefix(line, "RMD ") {
+			dirname := strings.TrimSpace(strings.TrimPrefix(line, "RMD "))
+			err := os.Remove(dirname)      //用 os.Remove 删除（它只能删除空目录，如果目录里有文件会报错）
+			if err != nil {
+				conn.Write([]byte("550 Failed to remove directory.\r\n"))    //   550 请求操作未执行：文件不可用
+			} else {
+				conn.Write([]byte("250 Directory removed.\r\n"))         //   250 请求文件操作成功
+			}
+			continue
+		}
+		//------------------------------删除文件
+		if strings.HasPrefix(line, "DELE ") {
+			filename := strings.TrimSpace(strings.TrimPrefix(line, "DELE "))
+			err := os.Remove(filename)   //删除文件就没问题
+			if err != nil {
+				conn.Write([]byte("550 Failed to delete file.\r\n"))   //   550 请求操作未执行：文件不可用
+			} else {
+				conn.Write([]byte("250 File deleted.\r\n"))     //   250 请求文件操作成功
+			}
+			continue
+		}
+
 
 
 
@@ -319,9 +354,5 @@ func (s *FTPserver) handerconn(conn net.Conn) {
 		}else {
 			conn.Write([]byte("502 命令未实现。\r\n"))          // 其他命令返回 502 未实现
 		}
-
-
-
 	}
-
 }
