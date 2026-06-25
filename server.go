@@ -6,6 +6,8 @@ import (
 	"net"
 	"strings"
 	"os"
+	"io"
+	"strconv"
 )
 
 type Config struct {
@@ -54,8 +56,9 @@ func (s *FTPserver) Server() error {
 		go s.handerconn(conn)
 	}
 }
+
 func (s *FTPserver)startPassiveListener()(net.Listener,int,error) {              //为被动模式创建一个临时监听器
-	datalinstener,err  := net.Listener("tcp","127.0.0.1:0")        // 监听本地任意可用端口
+	datalinstener,err  := net.Listen("tcp","127.0.0.1:0")        // 监听本地任意可用端口
 	if err != nil {
 		return nil,0,err
 	}
@@ -63,11 +66,6 @@ func (s *FTPserver)startPassiveListener()(net.Listener,int,error) {             
 	port, _ := strconv.Atoi(portStr)
 	return dataListener, port, nil
 }
-
-
-
-
-
 
 
 func (s *FTPserver) handerconn(conn net.Conn) {
@@ -121,12 +119,10 @@ func (s *FTPserver) handerconn(conn net.Conn) {
 			conn.Write([]byte("530 请登录账号。 \r\n"))          //登录状态
 			continue
 		}
-
 		if line == "PWD" {
 			conn.Write([]byte("257 \"/\" 是当前目录。\r\n"))              //257 对应FTP响应码 意思是创建路径名
 			continue
 		}
-
 		if line == "OPTS utf8 on"{                              //选项命令：启用 UTF‑8
 			conn.Write([]byte("200 成功\r\n"))
 			continue
@@ -149,17 +145,21 @@ func (s *FTPserver) handerconn(conn net.Conn) {
 		}
 
 
-		if line == "PASV" {
-			// 启动被动监听
-			dataListener, port, err := s.startPassiveListener()
+		if line == "PASV" {           // 启动被动监听
+			var port int
+			var err error
+			dataListener, port, err = s.startPassiveListener()
+			//    用 = 赋值给外层的 dataListener,这样后面 LIST/RETR/STOR 才能用到它
 			if err != nil {
 				conn.Write([]byte("425 Can't open data connection.\r\n"))
 				continue
 			}
+
+
 			p1 := port / 256
 			p2 := port % 256              // 转成 127,0,0,1,p1,p2       FTP协议要求是p1*256+p2=端口号
 
-			response := fmt.Sprintf("227 Entering Passive Mode (127,0,0,1,%d,%d)\r\n", p1, p2)
+			response := fmt.Sprintf("227 Entering Passive Mode (127,0,0,1,%d,%d)\r\n", p1, p2) //   227 进入被动模式
 
 			conn.Write([]byte(response))
 
@@ -236,8 +236,8 @@ func (s *FTPserver) handerconn(conn net.Conn) {
 			continue
 		}
 
-		if strings.HasPrefix(line,"RETR") {     //客户端发 RETR hello.txt，服务器就把 hello.txt 的内容通过数据连接发给客户端。
-			filename := strings.TrimSpace(strings.TrimPrefix(line,"RETR"))
+		if strings.HasPrefix(line,"RETR ") {     //客户端发 RETR hello.txt，服务器就把 hello.txt 的内容通过数据连接发给客户端。
+			filename := strings.TrimSpace(strings.TrimPrefix(line,"RETR "))
 			if dataListener == nil{
 				conn.Write([]byte("425 Use PASV first.\r\n"))   //425 无法打开数据连接
 				continue
@@ -282,7 +282,6 @@ func (s *FTPserver) handerconn(conn net.Conn) {
 				conn.Write([]byte("550 Failed to create file.\r\n"))   //   550 请求操作未执行：文件不可用
 				continue
 			}
-			defer file.Close()
 
 			conn.Write([]byte("150 Opening data connection.\r\n"))  //   150 文件状态正常，即将打开数据连接
 
@@ -297,6 +296,7 @@ func (s *FTPserver) handerconn(conn net.Conn) {
 
 			// 从数据连接读取客户端发来的数据，然后写入文件
 			io.Copy(file, dataconn2)
+			file.Close()    //手动关闭
 
 			dataconn2.Close()
 			dataListener.Close()
